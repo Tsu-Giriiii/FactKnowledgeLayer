@@ -170,24 +170,6 @@ curl http://localhost:8000/facts/12
 
 ---
 
-## Video Demo
-
-*(Add the final video/demo link here.)*
-
-The demo should ideally show:
-
-1. Uploading a PDF.
-2. Facts being extracted with evidence.
-3. Adding another document incrementally.
-4. Facts being linked across documents.
-5. A corroborating relationship.
-6. A contradiction.
-7. A contextual reconciliation.
-8. An extraction failure / ungrounded fact.
-9. The evidence quote and source page for verification.
-
----
-
 # Approach
 
 ## What Counts as a Fact?
