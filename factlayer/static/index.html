@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fact Knowledge Layer</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161922;
+    --panel-2: #1d212c;
+    --border: #2a2f3d;
+    --text: #e7e9ee;
+    --muted: #9aa2b1;
+    --accent: #7c9eff;
+    --green: #4ade80;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --purple: #c084fc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .upload-box {
+    display: flex; gap: 8px; align-items: center;
+  }
+  input[type="file"] {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  button {
+    background: var(--accent);
+    color: #10121a;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  main { padding: 20px 28px; max-width: 1200px; margin: 0 auto; }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .stat .num { font-size: 22px; font-weight: 700; }
+  .stat .label { font-size: 12px; color: var(--muted); }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tab {
+    padding: 7px 14px;
+    border-radius: 20px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .tab.active { background: var(--accent); color: #10121a; border-color: var(--accent); font-weight: 600; }
+  .doc-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  .doc-chip {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .doc-chip .status { font-size: 10px; padding: 2px 6px; border-radius: 10px; }
+  .status-processing { background: #3a2f10; color: var(--amber); }
+  .status-done { background: #10321f; color: var(--green); }
+  .status-failed { background: #3a1414; color: var(--red); }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .fact-statement { font-size: 14.5px; margin-bottom: 6px; }
+  .fact-meta { font-size: 12px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .badge { font-size: 10.5px; padding: 2px 7px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); }
+  .badge.warn { color: var(--red); border-color: var(--red); }
+  .evidence {
+    font-size: 12.5px;
+    background: var(--panel-2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    border-radius: 4px;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .rel-card { border-left: 4px solid var(--muted); }
+  .rel-card.corroborates { border-left-color: var(--green); }
+  .rel-card.contradicts { border-left-color: var(--red); }
+  .rel-card.contextual_reconciliation { border-left-color: var(--purple); }
+  .rel-type-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
+  .rel-type-label.corroborates { color: var(--green); }
+  .rel-type-label.contradicts { color: var(--red); }
+  .rel-type-label.contextual_reconciliation { color: var(--purple); }
+  .rel-explanation { font-size: 13px; margin: 8px 0; }
+  .rel-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+  @media (max-width: 700px) { .rel-facts { grid-template-columns: 1fr; } }
+  .mini-fact { background: var(--panel-2); border-radius: 6px; padding: 8px 10px; font-size: 12.5px; }
+  .mini-fact .doc { color: var(--accent); font-size: 11px; margin-bottom: 4px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 30px 0; text-align: center; }
+  #search { padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 13px; width: 220px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Fact Knowledge Layer</h1>
+    <p>Upload a PDF · facts are extracted, grounded in evidence, and cross-checked against everything already ingested</p>
+  </div>
+  <div class="upload-box">
+    <input type="file" id="fileInput" accept="application/pdf" />
+    <button id="uploadBtn">Upload PDF</button>
+  </div>
+</header>
+
+<main>
+  <div class="stats" id="stats"></div>
+
+  <div class="doc-list" id="docList"></div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="facts">Facts</div>
+    <div class="tab" data-tab="corroborates">Corroborated</div>
+    <div class="tab" data-tab="contradicts">Contradictions</div>
+    <div class="tab" data-tab="contextual_reconciliation">Reconciled by context</div>
+    <div class="tab" data-tab="flagged">Flagged / low confidence</div>
+    <input type="text" id="search" placeholder="Search facts..." style="margin-left:auto" />
+  </div>
+
+  <div id="content"></div>
+</main>
+
+<script>
+const API = "";
+let activeTab = "facts";
+let currentDocFilter = null;
+
+async function fetchJSON(url) {
+  const res = await fetch(API + url);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s ?? "";
+  return div.innerHTML;
+}
+
+function factMetaLine(f) {
+  const bits = [];
+  if (f.value) bits.push(`<span class="badge">${escapeHtml(f.value)} ${escapeHtml(f.unit || "")}</span>`);
+  if (f.time_scope) bits.push(`<span class="badge">${escapeHtml(f.time_scope)}</span>`);
+  if (f.geo_scope) bits.push(`<span class="badge">${escapeHtml(f.geo_scope)}</span>`);
+  if (f.fact_type) bits.push(`<span class="badge">${escapeHtml(f.fact_type)}</span>`);
+  if (!f.grounded) bits.push(`<span class="badge warn">unverified quote</span>`);
+  bits.push(`<span class="badge">${escapeHtml(f.document_filename || "")} · p.${f.evidence_page}</span>`);
+  bits.push(`<span class="badge">confidence ${Math.round((f.confidence || 0) * 100)}%</span>`);
+  return bits.join(" ");
+}
+
+function renderFactCard(f) {
+  return `
+    <div class="card">
+      <div class="fact-statement">${escapeHtml(f.statement)}</div>
+      <div class="fact-meta">${factMetaLine(f)}</div>
+      <div class="evidence">&ldquo;${escapeHtml(f.evidence_quote)}&rdquo;</div>
+    </div>`;
+}
+
+function renderMiniFact(f) {
+  return `
+    <div class="mini-fact">
+      <div class="doc">${escapeHtml(f.document_filename || "")} · p.${f.evidence_page}</div>
+      <div>${escapeHtml(f.statement)}</div>
+      <div class="evidence" style="margin-top:6px;">&ldquo;${escapeHtml(f.evidence_quote)}&rdquo;</div>
+    </div>`;
+}
+
+function renderRelCard(r) {
+  return `
+    <div class="card rel-card ${r.relation_type}">
+      <div class="rel-type-label ${r.relation_type}">${r.relation_type.replace(/_/g, " ")}</div>
+      <div class="rel-explanation">${escapeHtml(r.explanation)}</div>
+      <div class="rel-facts">
+        ${renderMiniFact(r.fact_a)}
+        ${renderMiniFact(r.fact_b)}
+      </div>
+    </div>`;
+}
+
+async function loadStats() {
+  const s = await fetchJSON("/stats");
+  const el = document.getElementById("stats");
+  const items = [
+    ["documents", "Documents"],
+    ["facts", "Facts"],
+    ["corroborates", "Corroborated"],
+    ["contradicts", "Contradictions"],
+    ["contextual_reconciliation", "Reconciled"],
+    ["ungrounded_facts", "Flagged"],
+  ];
+  el.innerHTML = items
+    .map(([k, label]) => `<div class="stat"><div class="num">${s[k]}</div><div class="label">${label}</div></div>`)
+    .join("");
+}
+
+async function loadDocs() {
+  const docs = await fetchJSON("/documents");
+  const el = document.getElementById("docList");
+  if (docs.length === 0) {
+    el.innerHTML = `<span class="empty" style="padding:0;">No documents yet — upload a PDF to get started.</span>`;
+    return;
+  }
+  el.innerHTML = docs
+    .map(
+      (d) => `
+      <div class="doc-chip" data-doc="${d.id}" style="cursor:pointer; ${currentDocFilter === d.id ? "outline:1px solid var(--accent);" : ""}">
+        ${escapeHtml(d.filename)}
+        <span class="status status-${d.status}">${d.status}</span>
+      </div>`
+    )
+    .join("");
+  el.querySelectorAll(".doc-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const id = parseInt(chip.dataset.doc, 10);
+      currentDocFilter = currentDocFilter === id ? null : id;
+      loadDocs();
+      loadContent();
+    });
+  });
+}
+
+async function loadContent() {
+  const content = document.getElementById("content");
+  content.innerHTML = `<div class="empty">Loading…</div>`;
+  const search = document.getElementById("search").value.trim();
+
+  try {
+    if (activeTab === "facts") {
+      let url = "/facts?limit=100";
+      if (currentDocFilter) url += `&document_id=${currentDocFilter}`;
+      if (search) url += `&q=${encodeURIComponent(search)}`;
+      const facts = await fetchJSON(url);
+      content.innerHTML = facts.length
+        ? facts.map(renderFactCard).join("")
+        : `<div class="empty">No facts found yet.</div>`;
+    } else if (activeTab === "flagged") {
+      let url = "/facts?limit=100&grounded=false";
+      if (currentDocFilter) url += `&document_id=${currentDocFilter}`;
+      const facts = await fetchJSON(url);
+      content.innerHTML = facts.length
+        ? facts.map(renderFactCard).join("")
+        : `<div class="empty">No flagged facts — nice.</div>`;
+    } else {
+      const rels = await fetchJSON(`/relationships?type=${activeTab}&limit=100`);
+      content.innerHTML = rels.length
+        ? rels.map(renderRelCard).join("")
+        : `<div class="empty">Nothing here yet — upload more documents to find links.</div>`;
+    }
+  } catch (e) {
+    content.innerHTML = `<div class="empty">Error loading data: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    activeTab = tab.dataset.tab;
+    loadContent();
+  });
+});
+
+document.getElementById("search").addEventListener("input", () => {
+  if (activeTab === "facts") loadContent();
+});
+
+document.getElementById("uploadBtn").addEventListener("click", async () => {
+  const input = document.getElementById("fileInput");
+  if (!input.files.length) return alert("Choose a PDF first.");
+  const btn = document.getElementById("uploadBtn");
+  btn.disabled = true;
+  btn.textContent = "Uploading…";
+  const fd = new FormData();
+  fd.append("file", input.files[0]);
+  try {
+    await fetch("/documents", { method: "POST", body: fd });
+    input.value = "";
+    await refreshAll();
+    pollUntilDone();
+  } catch (e) {
+    alert("Upload failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Upload PDF";
+  }
+});
+
+function pollUntilDone() {
+  const interval = setInterval(async () => {
+    const docs = await fetchJSON("/documents");
+    await refreshAll();
+    const stillProcessing = docs.some((d) => d.status === "processing");
+    if (!stillProcessing) clearInterval(interval);
+  }, 4000);
+}
+
+async function refreshAll() {
+  await Promise.all([loadStats(), loadDocs(), loadContent()]);
+}
+
+refreshAll();
+</script>
+</body>
+</html>
