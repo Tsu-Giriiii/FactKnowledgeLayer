@@ -1,79 +1,170 @@
 # Fact Knowledge Layer
 
-A document-agnostic system that ingests PDFs, extracts atomic, evidence-grounded
-facts, and figures out how facts across documents **corroborate**, **contradict**,
-or can be **reconciled through context** (different time period, scope, unit, etc).
+A document-agnostic system that ingests PDFs, extracts atomic, evidence-grounded facts, and determines how facts across documents **corroborate**, **contradict**, or can be **reconciled through context** such as different time periods, scopes, units, or revisions.
 
-Built for the Superjoin VIT 2026 engineering intern assignment. Nothing here is
-hard-coded to the three starter PDFs (RBI Annual Report, Economic Survey, IMF
-Article IV) — the same pipeline should work on any PDF you throw at it.
+Built for the **Superjoin VIT 2026 Engineering Intern Assignment**.
 
-> This README covers the parts I (Claude) built: the extraction/linking engine,
-> the API, and a minimal UI. Fill in the **Video Demo** section and anything about
-> your own setup/deployment before you submit.
+Nothing in the pipeline is hard-coded to the three starter PDFs (RBI Annual Report, Economic Survey, and IMF Article IV). The same pipeline is designed to work with arbitrary PDF documents.
 
 ---
 
 ## Setup and Run Instructions
 
 ### 1. Requirements
-- Python 3.11+
-- A Gemini API key (free tier is enough) — get one at https://aistudio.google.com/apikey
+
+* Python 3.11+
+* A Gemini API key
+* Internet access for Gemini API calls and the initial download of the local embedding model
+
+Get a Gemini API key from:
+
+https://aistudio.google.com/apikey
 
 ### 2. Install
 
 ```bash
 python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+```
+
+Activate the virtual environment:
+
+**Windows:**
+
+```bash
+venv\Scripts\activate
+```
+
+**Linux / macOS:**
+
+```bash
+source venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
 
 ### 3. Configure
 
+Copy the example environment file:
+
 ```bash
 cp .env.example .env
-# edit .env and set GEMINI_API_KEY=...
 ```
 
-`GEMINI_MODEL` defaults to `gemini-2.5-flash` (stable, generous free tier).
-Check https://ai.google.dev/gemini-api/docs/models for the current lineup —
-Google ships new model generations (e.g. `gemini-3-flash-preview`) fairly
-often, and 2.5 is currently slated for shutdown in October 2026.
+On Windows, you can also simply copy `.env.example` to `.env` manually.
 
-The first run will download a small local embedding model
-(`sentence-transformers/all-MiniLM-L6-v2`, ~90MB) — this happens once, requires
-internet, and after that the app works fully offline except for the calls to
-the Gemini API itself.
+Then set:
 
-### 4. Run
+```env
+GEMINI_API_KEY=your_api_key_here
+```
+
+The application uses:
+
+```env
+GEMINI_MODEL=gemini-3.5-flash-lite
+```
+
+The Gemini model is used for both fact extraction and relationship classification.
+
+The extraction pipeline uses Gemini 3.x's `thinking_level="minimal"` configuration to keep latency and output overhead low while retaining compatibility with the Gemini 3.x API.
+
+For current Gemini model information, see:
+
+https://ai.google.dev/gemini-api/docs/models
+
+### 4. Local Embedding Model
+
+The system uses:
+
+```text
+sentence-transformers/all-MiniLM-L6-v2
+```
+
+for local semantic embeddings.
+
+The model is downloaded the first time the application is run and is approximately 90 MB. It is then loaded locally and does not require an API call for generating embeddings.
+
+The embedding model is used to efficiently identify potentially related facts before sending candidate pairs to Gemini for relationship classification.
+
+### 5. Run
+
+Start the FastAPI application:
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Open **http://localhost:8000** for the UI, or use the API directly (docs at
-`http://localhost:8000/docs`).
+Open:
 
-### 5. Deploy (Render.com)
+```text
+http://localhost:8000
+```
 
-A `render.yaml` is included (Python web service, `uvicorn app.main:app --host
-0.0.0.0 --port $PORT`, persistent disk mounted at `/data` for the SQLite file
-and uploaded PDFs). Set `GEMINI_API_KEY` as a secret env var in the Render
-dashboard — don't commit it.
+for the web UI.
 
-### Basic usage
+The interactive API documentation is available at:
+
+```text
+http://localhost:8000/docs
+```
+
+### 6. Deploying on Render
+
+A `render.yaml` is included for deployment as a Python web service.
+
+The service runs:
 
 ```bash
-# upload a PDF — this extracts facts and cross-links them against everything
-# already in the knowledge layer
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+A persistent disk is mounted at `/data` for the SQLite database and uploaded PDFs.
+
+Set the following as a secret environment variable in the Render dashboard:
+
+```env
+GEMINI_API_KEY=your_api_key_here
+```
+
+The API key should never be committed to the repository.
+
+---
+
+## Basic Usage
+
+Upload a PDF:
+
+```bash
 curl -F "file=@somefile.pdf" http://localhost:8000/documents
+```
 
-# list everything extracted so far
+This extracts facts from the document and cross-links them against facts already present in the knowledge layer.
+
+List extracted facts:
+
+```bash
 curl http://localhost:8000/facts
-curl http://localhost:8000/relationships
-curl http://localhost:8000/relationships?type=contradicts
+```
 
-# a single fact with its full evidence + related facts
+List relationships:
+
+```bash
+curl http://localhost:8000/relationships
+```
+
+List only contradictions:
+
+```bash
+curl http://localhost:8000/relationships?type=contradicts
+```
+
+Retrieve a single fact with its evidence and related facts:
+
+```bash
 curl http://localhost:8000/facts/12
 ```
 
@@ -81,168 +172,548 @@ curl http://localhost:8000/facts/12
 
 ## Video Demo
 
-_(link to be added by the candidate)_
+*(Add the final video/demo link here.)*
+
+The demo should ideally show:
+
+1. Uploading a PDF.
+2. Facts being extracted with evidence.
+3. Adding another document incrementally.
+4. Facts being linked across documents.
+5. A corroborating relationship.
+6. A contradiction.
+7. A contextual reconciliation.
+8. An extraction failure / ungrounded fact.
+9. The evidence quote and source page for verification.
 
 ---
 
-## Approach
+# Approach
 
-### What counts as a "fact" here
+## What Counts as a Fact?
 
-Rather than forcing every document into one fixed schema (e.g. "always
-subject/predicate/object", or a hard-coded list of metrics like "GDP growth,
-inflation, repo rate"), each extracted fact is a semi-structured record:
+Instead of forcing every document into a fixed schema such as subject/predicate/object, or limiting the system to predefined metrics such as GDP growth or inflation, each extracted fact is represented as a semi-structured record.
 
-| field | meaning |
-|---|---|
-| `statement` | one-sentence restatement of the fact, in the model's own words |
-| `subject` | the normalized real-world thing the fact is about (e.g. "India real GDP growth rate", "RBI repo rate", "Net FDI inflows into India") — this is what facts get matched on across documents |
-| `fact_type` | free-text category the model assigns (e.g. `rate`, `monetary_amount`, `event`, `status`, `ratio`, `count`, `forecast`) — not a fixed enum, so new kinds of facts don't need schema changes |
-| `value` / `unit` | the number/state and its unit, kept separate so a value can be compared even when phrasing differs |
-| `time_scope` | the period the fact applies to (fiscal year, "as of March 2025", a forecast horizon, etc.) |
-| `geo_scope` | country/region/entity the fact is scoped to, when relevant |
-| `evidence_quote` | a short verbatim quote from the source page that supports the fact |
-| `evidence_page` | page number in the source PDF |
-| `confidence` | the extraction model's own confidence (0–1) |
+| Field            | Meaning                                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------------------- |
+| `statement`      | One-sentence restatement of the fact                                                                          |
+| `subject`        | The normalized real-world entity or concept the fact concerns                                                 |
+| `fact_type`      | Model-assigned category such as `rate`, `monetary_amount`, `event`, `status`, `ratio`, `count`, or `forecast` |
+| `value`          | The numerical value or state associated with the fact                                                         |
+| `unit`           | Unit associated with the value                                                                                |
+| `time_scope`     | Period for which the fact applies                                                                             |
+| `geo_scope`      | Geographic/entity scope when relevant                                                                         |
+| `evidence_quote` | Short verbatim quote from the source supporting the fact                                                      |
+| `evidence_page`  | Page number containing the evidence                                                                           |
+| `confidence`     | Model-assigned extraction confidence from 0–1                                                                 |
+| `grounded`       | Whether the evidence quote could be verified against the source text                                          |
 
-Letting the LLM populate `subject` and `fact_type` freely (instead of picking
-from a fixed list) is what makes the schema "evolve" as new kinds of documents
-come in — a legal contract and a macro report don't need the same fact
-taxonomy, but they can live in the same table.
+The `subject` and `fact_type` fields are intentionally flexible rather than being restricted to a predefined enum.
 
-### Pipeline
-
-1. **Extract text per page** (`app/pdf_utils.py`, via `pdfplumber`).
-2. **Chunk & extract facts** (`app/extraction.py` + `app/llm_client.py`): pages
-   are grouped into ~3-page windows (to keep enough context for things like "as
-   of the previous paragraph") and sent to the LLM with a prompt that asks for
-   atomic, evidence-grounded facts as JSON. Every returned fact's
-   `evidence_quote` is checked with a fuzzy substring match against the actual
-   page text — if the model invented a quote that isn't really there, the fact
-   is kept but flagged (`grounded = False`) rather than silently trusted. This
-   is the main defence against hallucinated "facts."
-3. **Embed facts** (`app/embeddings.py`, local `sentence-transformers` model,
-   no extra API calls/cost): each fact's `subject` + `value` + `unit` is
-   embedded so facts about the "same thing" can be found across documents even
-   when the wording differs a lot (e.g. "headline retail inflation" vs "CPI
-   inflation").
-4. **Link facts** (`app/linking.py`): for every newly extracted fact, find the
-   top-K most similar existing facts *from other documents* by cosine
-   similarity. Only reasonably similar candidates (above a threshold) go to
-   the next step — this keeps LLM calls down to O(new facts) instead of
-   O(all pairs).
-5. **Classify the relationship** with a second LLM call that sees both facts
-   *and* both evidence quotes side by side, and has to return one of
-   `corroborates`, `contradicts`, `contextual_reconciliation`, or `unrelated`,
-   plus a one-paragraph explanation. `contextual_reconciliation` is
-   specifically for "these look contradictory but aren't, because X" — e.g.
-   different fiscal years, different units (crore vs billion), or a
-   provisional vs. final figure.
-6. Everything is persisted in SQLite (`documents`, `facts`, `relationships`)
-   and served through a small FastAPI app + a single-page vanilla-JS UI.
-
-### Why this design
-
-- **Incremental, not batch.** Adding a new document only re-runs linking for
-  *its* new facts against the existing pool — it never re-embeds or
-  re-classifies old facts. This satisfies the "add documents incrementally"
-  extension somewhat naturally, and also just makes it fast.
-- **Two separate LLM calls (extract, then compare) instead of one big call.**
-  Extraction only ever looks at one document at a time, so the prompt doesn't
-  grow with the size of the knowledge layer. Comparison only looks at two
-  facts at a time. This is what lets the system scale to "many PDFs" without
-  the prompt blowing up — the embedding step is what keeps the *number* of
-  comparison calls small.
-- **Evidence is a verbatim quote + page number, not a paraphrase**, so a human
-  can always jump back to the PDF and check the model's work. Ungrounded
-  quotes are flagged instead of hidden, which doubles as the built-in
-  "extraction failure" surface for case #4 (see below).
-- **SQLite over a graph DB.** The assignment explicitly says a graph DB isn't
-  the point. Facts + a `relationships` join table already *is* a graph; adding
-  Neo4j would just be another moving part without changing what's actually
-  being computed.
-
-### AI tools used
-
-Claude (this conversation) designed and wrote the extraction pipeline, linking
-logic, API, and UI. The Gemini API (`gemini-2.5-flash`) is used at runtime,
-twice per document: once to extract facts from each page-window, and once per
-candidate pair to classify the relationship between two facts. Gemini's
-free tier is what makes running/demoing this without a paid key practical.
+This allows the same knowledge layer to represent facts from fundamentally different documents. For example, a macroeconomic report and a legal document can use different types of facts while still participating in the same extraction and linking pipeline.
 
 ---
 
-## The four required cases
+# Pipeline
 
-These fall out of running the pipeline on the three starter PDFs; exact
-fact IDs will depend on what gets extracted on a given run, so treat the shape
-of each case as the important part, not specific numbers:
+### 1. PDF Text Extraction
 
-1. **Corroborated across documents.** The same underlying figure (e.g. a
-   growth/inflation number for the same period) shows up in both the Economic
-   Survey and the IMF Article IV report, phrased differently — `subject`
-   embedding similarity brings them together and the classifier should mark
-   them `corroborates`.
-2. **Genuine/likely contradiction.** Two documents state different values for
-   what looks like the same fact and scope, with no time/unit/scope difference
-   the classifier can point to — marked `contradicts`, with the explanation
-   naming exactly what differs.
-3. **Apparent contradiction reconciled by context.** Two figures that look
-   like they disagree turn out to cover different fiscal years, or one is
-   provisional and the other revised/final, or the units differ (INR crore vs
-   USD billion) — marked `contextual_reconciliation`, with the explanation
-   stating the reconciling factor.
-4. **An extraction/reasoning failure.** Surfaced automatically via
-   `grounded = False` facts (quote didn't verify against the source page) and
-   via low-`confidence` facts — both are visible in the UI and via
-   `GET /facts?grounded=false`. Pull a concrete example for the demo and
-   describe how you'd fix it (e.g. tighter chunking, requiring the model to
-   quote a contiguous span, a second-pass verifier call) in **Limitations**.
+`app/pdf_utils.py` extracts text from each PDF page using `pdfplumber`.
 
-Use the `/facts` and `/relationships` endpoints (or the UI) to pull the actual
-IDs/evidence for whichever examples you find when you run it, and screenshot
-those for the video + this section.
+Keeping page boundaries allows every extracted fact to retain a reference to its original evidence.
 
 ---
 
-## Limitations and Next Steps
+### 2. Chunking and Fact Extraction
 
-- **Gemini 2.5 models "think" by default**, and thinking tokens are drawn from
-  the same `max_output_tokens` budget as the actual answer — left on, this
-  silently truncates the JSON output on chunks with a lot of facts. The code
-  disables thinking for both LLM calls (`thinking_budget=0` in
-  `app/llm_client.py`) and raises a clear error instead of a cryptic JSON
-  parse failure if a response still gets cut off, but if you swap in a
-  different model, check whether it has the same behavior.
-- **Quote verification is exact-ish string matching**, not semantic — it will
-  false-flag a true fact if the model reformats whitespace/numbers slightly
-  when quoting. A fuzzy/normalized match (strip punctuation, collapse
-  whitespace, allow small edit distance) would reduce false flags.
-- **Candidate matching is embedding similarity on a single vector per fact.**
-  Two facts about very different things but similar surface wording (e.g. two
-  different "growth rate" facts about different sectors) can produce
-  borderline-similar embeddings; the relationship classifier is the real
-  safety net here, but a bad classification on a bad candidate is still
-  possible. Next step: also compare `fact_type` and require some entity/token
-  overlap before spending an LLM call.
-- **No OCR fallback.** If a PDF is scanned images rather than text,
-  `pdfplumber` will return little/no text and extraction will silently produce
-  few or no facts. Next step: detect near-empty pages and fall back to an
-  OCR pass.
-- **Single-tenant, single SQLite file.** Fine for a prototype; would move to
-  Postgres + a proper task queue (so PDF processing doesn't block the request)
-  before this touched real traffic.
-- **No de-duplication of facts within the same document** beyond what the
-  extraction prompt naturally avoids — a very repetitive document could
-  produce near-duplicate facts.
-- **Relationship classification is pairwise**, so it doesn't currently notice
-  three-or-more-way relationships (e.g. a fact revised across three
-  consecutive annual reports) as a single narrative — each pair is judged
-  independently.
+`app/extraction.py` and `app/llm_client.py` group pages into approximately three-page windows.
 
-## Additional Notes
+Each window is sent to Gemini with a generic extraction prompt requesting:
 
-The system prompt for extraction and linking is intentionally generic — it
-never mentions RBI, IMF, or the Economic Survey — the goal was for the exact
-same code to work on the "additional PDFs" mentioned in the assignment without
-changes.
+* Atomic facts
+* Evidence-grounded statements
+* Structured JSON output
+* Evidence quotes
+* Source page numbers
+* Confidence scores
+
+The extraction prompt is document-agnostic and does not contain assumptions about RBI, IMF, GDP, inflation, or any other domain-specific metric.
+
+Every returned evidence quote is subsequently checked against the actual page text.
+
+If the quote cannot be sufficiently matched, the fact is retained but marked:
+
+```text
+grounded = False
+```
+
+This prevents an unsupported model-generated fact from being silently treated as verified information.
+
+---
+
+### 3. Local Semantic Embeddings
+
+`app/embeddings.py` uses:
+
+```text
+sentence-transformers/all-MiniLM-L6-v2
+```
+
+to generate local embeddings.
+
+Each fact is represented using its:
+
+```text
+subject + value + unit
+```
+
+This allows semantically similar facts to be retrieved even when their wording differs.
+
+For example:
+
+```text
+"headline retail inflation"
+```
+
+and:
+
+```text
+"CPI inflation"
+```
+
+may still be identified as potential matches.
+
+No external API call is required for this embedding step.
+
+---
+
+### 4. Candidate Fact Linking
+
+`app/linking.py` compares each newly extracted fact against existing facts from **other documents** using cosine similarity.
+
+Only candidates above a similarity threshold are passed to the next stage.
+
+This is important for scalability.
+
+Instead of asking the LLM to evaluate every possible pair of facts:
+
+```text
+O(all facts²)
+```
+
+the embedding layer first narrows the search to a small number of plausible candidates.
+
+The LLM is therefore primarily used for semantic reasoning rather than brute-force similarity search.
+
+---
+
+### 5. Relationship Classification
+
+Each candidate pair is sent to Gemini along with:
+
+* Fact A
+* Fact A's evidence
+* Fact B
+* Fact B's evidence
+* Relevant metadata such as time and geographic scope
+
+The model classifies the relationship as one of:
+
+```text
+corroborates
+contradicts
+contextual_reconciliation
+unrelated
+```
+
+It also produces an explanation.
+
+`contextual_reconciliation` is specifically intended for cases where two statements initially appear contradictory but can be reconciled because of contextual differences.
+
+Examples include:
+
+* Different fiscal years
+* Different geographic scopes
+* Different units
+* Forecast vs actual values
+* Provisional vs revised/final figures
+* Different reporting periods
+
+---
+
+### 6. Persistence and API
+
+The extracted knowledge is persisted in SQLite using three primary entities:
+
+```text
+documents
+facts
+relationships
+```
+
+The data is exposed through a FastAPI backend and a minimal vanilla-JavaScript web UI.
+
+The resulting structure can be viewed conceptually as:
+
+```text
+Document
+   │
+   └── Fact
+        │
+        ├── corroborates ────── Fact
+        ├── contradicts ─────── Fact
+        └── contextual_reconciliation ─── Fact
+```
+
+---
+
+# Why This Design?
+
+### Incremental Processing
+
+Documents are processed incrementally.
+
+When a new document is uploaded:
+
+1. Only the new document is parsed.
+2. Only its facts are embedded.
+3. Its facts are compared against the existing knowledge layer.
+4. Existing facts do not need to be re-extracted or re-embedded.
+
+This makes the system naturally suitable for progressively adding documents.
+
+---
+
+### Two-Stage LLM Architecture
+
+The system deliberately separates:
+
+```text
+Fact Extraction
+       ↓
+Candidate Retrieval
+       ↓
+Relationship Classification
+```
+
+rather than using a single large LLM prompt.
+
+Extraction operates on one document chunk at a time, while relationship classification operates on two candidate facts at a time.
+
+The embedding layer reduces the number of relationship-classification calls by filtering out obviously unrelated facts before invoking the LLM.
+
+---
+
+### Evidence-First Design
+
+Every extracted fact is associated with:
+
+* A source document
+* A source page
+* A verbatim evidence quote
+* A grounding status
+
+This makes the system auditable.
+
+A user can inspect the evidence behind a fact instead of having to blindly trust an LLM-generated statement.
+
+Ungrounded evidence is explicitly surfaced rather than hidden.
+
+---
+
+### SQLite Instead of a Graph Database
+
+The assignment does not require a graph database.
+
+The relationship table already represents the graph structure:
+
+```text
+fact → relationship → fact
+```
+
+SQLite keeps the prototype simple while still supporting the required knowledge representation and API operations.
+
+A dedicated graph database could be introduced later if relationship traversal became substantially more complex.
+
+---
+
+# AI Tools Used
+
+The application uses **Gemini 3.5 Flash-Lite** through the Gemini API for runtime reasoning.
+
+Gemini is used in two stages:
+
+1. **Fact extraction** — extracting atomic, evidence-grounded facts from document chunks.
+2. **Relationship classification** — determining whether candidate facts corroborate, contradict, reconcile through context, or are unrelated.
+
+The application configures Gemini 3.x using:
+
+```python
+thinking_config=types.ThinkingConfig(
+    thinking_level="minimal"
+)
+```
+
+This is the Gemini 3.x configuration used by the current implementation.
+
+Local semantic similarity is handled separately using:
+
+```text
+sentence-transformers/all-MiniLM-L6-v2
+```
+
+so embedding generation does not require additional LLM API calls.
+
+---
+
+# The Four Required Cases
+
+The system is designed to surface the four cases required by the assignment.
+
+Exact fact IDs and values may vary between runs because extraction depends on the model's output. Therefore, the examples below describe the expected structure rather than hard-coding specific IDs.
+
+## 1. Corroborated Across Documents
+
+Two documents contain the same underlying fact, potentially using different wording.
+
+For example:
+
+```text
+Document A:
+India's real GDP growth was X%.
+
+Document B:
+Real economic activity expanded by X% during the same period.
+```
+
+Embedding similarity identifies the statements as candidate matches, and Gemini can classify the resulting pair as:
+
+```text
+corroborates
+```
+
+---
+
+## 2. Genuine or Likely Contradiction
+
+Two documents describe what appears to be the same fact with different values and no obvious contextual explanation.
+
+For example:
+
+```text
+Document A:
+Inflation was 5.2%.
+
+Document B:
+Inflation was 7.1%.
+```
+
+If the subject, period, unit, and scope are sufficiently aligned, the relationship can be classified as:
+
+```text
+contradicts
+```
+
+The explanation should identify what differs between the two statements.
+
+---
+
+## 3. Apparent Contradiction Reconciled by Context
+
+Two facts appear contradictory but actually refer to different contexts.
+
+Examples:
+
+```text
+Different fiscal years
+Different geographic scopes
+Different units
+Forecast vs actual
+Provisional vs revised value
+```
+
+The relationship is classified as:
+
+```text
+contextual_reconciliation
+```
+
+The explanation identifies the contextual factor that resolves the apparent contradiction.
+
+---
+
+## 4. Extraction or Reasoning Failure
+
+The system also exposes extraction failures rather than hiding them.
+
+A concrete example can be obtained from:
+
+```bash
+GET /facts?grounded=false
+```
+
+Potential failure signals include:
+
+* `grounded = False`
+* Low extraction confidence
+* Incorrect or unverifiable evidence quotes
+* Incorrect relationship classification
+
+A useful demo example should show the extracted fact, its failed evidence verification, and the corresponding source page.
+
+Possible improvements include:
+
+* Tighter chunking
+* Requiring contiguous evidence spans
+* A second-pass evidence verifier
+* OCR fallback for scanned PDFs
+* More structured validation of extracted fields
+
+---
+
+# Limitations and Next Steps
+
+### 1. Gemini 3.x Minimal Thinking Is Not a Hard Zero
+
+The current implementation uses:
+
+```python
+thinking_level="minimal"
+```
+
+for Gemini 3.x.
+
+This is intended to minimize thinking overhead and latency. It should not be interpreted as a guarantee that zero internal reasoning tokens are used.
+
+If the model is changed, the supported thinking configuration should be reviewed against that model's API specification.
+
+---
+
+### 2. Evidence Verification Is Approximate
+
+Evidence verification currently relies on string/fuzzy matching against the extracted PDF text.
+
+This can produce false negatives when the model changes:
+
+* Whitespace
+* Punctuation
+* Number formatting
+* Unicode characters
+
+A stronger implementation could normalize the source and quote text more aggressively or use a dedicated evidence-verification pass.
+
+---
+
+### 3. Embedding-Based Candidate Retrieval Can Produce False Positives
+
+The candidate-generation stage uses semantic similarity.
+
+Two facts may have similar wording while referring to different entities.
+
+For example:
+
+```text
+GDP growth in India
+GDP growth in the manufacturing sector
+```
+
+could potentially become candidate matches.
+
+The relationship classifier provides a second safety layer, but candidate generation could be improved by additionally considering:
+
+* `fact_type`
+* Entity overlap
+* Geographic scope
+* Time scope
+* Numerical compatibility
+
+---
+
+### 4. No OCR Fallback
+
+The current PDF extraction pipeline relies on text being available through `pdfplumber`.
+
+Scanned/image-only PDFs may therefore produce little or no usable text.
+
+A production version should detect near-empty pages and automatically invoke an OCR pipeline.
+
+---
+
+### 5. Single-Tenant SQLite Architecture
+
+SQLite is appropriate for the assignment prototype, but a production deployment would likely use:
+
+```text
+PostgreSQL
++
+background task queue
++
+object storage
+```
+
+This would allow document processing to happen asynchronously without blocking API requests.
+
+---
+
+### 6. Limited Intra-Document Deduplication
+
+The current extraction process does not perform a dedicated semantic deduplication stage within the same document.
+
+Highly repetitive documents could therefore produce near-duplicate facts.
+
+A future version could perform semantic deduplication after extraction.
+
+---
+
+### 7. Pairwise Relationship Classification
+
+Relationships are currently evaluated pairwise.
+
+For example:
+
+```text
+2023 Report → Fact A
+2024 Report → Fact B
+2025 Report → Fact C
+```
+
+is treated as separate pairs rather than one evolving fact history.
+
+A future version could build temporal fact chains and represent how a value changes across successive documents.
+
+---
+
+# Additional Notes
+
+The extraction and relationship-classification prompts are intentionally generic.
+
+The system does not contain special rules for:
+
+* RBI
+* IMF
+* Economic Survey
+* GDP
+* Inflation
+* Monetary policy
+
+The same pipeline can therefore be applied to additional PDFs without modifying the extraction logic.
+
+The architecture is designed around a general principle:
+
+```text
+PDFs
+ ↓
+Text + Page Boundaries
+ ↓
+Atomic Facts + Evidence
+ ↓
+Local Semantic Retrieval
+ ↓
+Candidate Fact Pairs
+ ↓
+LLM Relationship Reasoning
+ ↓
+Knowledge Layer
+```
+
+This separation keeps document ingestion, semantic retrieval, reasoning, persistence, and presentation independent of one another.

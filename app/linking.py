@@ -1,10 +1,11 @@
+import concurrent.futures as cf
 import logging
 
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.embeddings import cosine_similarity
-from app.llm_client import classify_relationship
+from app.llm_client import classify_relationship, QuotaExhaustedError
 from app.models import Fact, FactRelationship, Document
 
 logger = logging.getLogger("factlayer.linking")
@@ -29,7 +30,13 @@ def link_new_facts(db: Session, new_facts: list[Fact]) -> None:
     """For each newly extracted fact, find similar existing facts from OTHER
     documents and classify the relationship between them. This only costs
     O(new_facts) LLM calls per candidate, not O(all_facts^2) — adding one more
-    document never re-processes facts that were already linked before."""
+    document never re-processes facts that were already linked before.
+
+    The candidate-finding + dedup checks (all DB reads) happen on this
+    thread; the classify_relationship LLM calls for all candidates across all
+    new_facts are then fired off concurrently, and the resulting rows are
+    written back on this thread once each call resolves.
+    """
     if not new_facts:
         return
 
@@ -52,10 +59,9 @@ def link_new_facts(db: Session, new_facts: list[Fact]) -> None:
             filenames[document_id] = doc.filename if doc else "unknown"
         return filenames[document_id]
 
-    other_by_doc: dict[int, list[Fact]] = {}
-    for f in all_other_facts:
-        other_by_doc.setdefault(f.document_id, []).append(f)
-
+    # Build the full list of (new_fact, other_fact, similarity) pairs worth
+    # classifying, across all new_facts, skipping pairs already linked.
+    tasks: list[tuple[Fact, Fact, float]] = []
     for new_fact in new_facts:
         new_vec = new_fact.get_embedding()
         if new_vec is None:
@@ -101,12 +107,36 @@ def link_new_facts(db: Session, new_facts: list[Fact]) -> None:
             )
             if existing:
                 continue
+            tasks.append((new_fact, other, sim))
 
+    if not tasks:
+        return
+
+    max_workers = max(1, min(settings.LLM_MAX_CONCURRENCY, len(tasks)))
+    logger.info(
+        "linking: classifying %d candidate pairs with up to %d concurrent Gemini calls",
+        len(tasks),
+        max_workers,
+    )
+
+    with cf.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_map = {}
+        for new_fact, other, sim in tasks:
             fact_a_dict = _fact_to_dict(new_fact, get_filename(new_fact.document_id))
             fact_b_dict = _fact_to_dict(other, get_filename(other.document_id))
+            future = executor.submit(classify_relationship, fact_a_dict, fact_b_dict)
+            future_map[future] = (new_fact, other, sim)
 
+        quota_hit = False
+        for future in cf.as_completed(future_map):
+            new_fact, other, sim = future_map[future]
             try:
-                result = classify_relationship(fact_a_dict, fact_b_dict)
+                result = future.result()
+            except QuotaExhaustedError:
+                # Don't bother logging one of these per pair — there could
+                # be dozens queued up, all failing fast for the same reason.
+                quota_hit = True
+                continue
             except Exception:  # noqa: BLE001
                 logger.exception(
                     "linking: classification failed for facts %s/%s",
@@ -128,4 +158,9 @@ def link_new_facts(db: Session, new_facts: list[Fact]) -> None:
                 similarity=sim,
             )
             db.add(rel)
-        db.commit()
+
+    db.commit()  # keep whatever classifications did succeed before the quota hit
+
+    if quota_hit:
+        logger.error("linking: stopped early — Gemini quota exhausted")
+        raise QuotaExhaustedError("Gemini quota exhausted during relationship classification")

@@ -13,7 +13,9 @@ logger = logging.getLogger("factlayer.embeddings")
 os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "15")
 os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "15")
 
-_model = None
+# _model = None
+from sentence_transformers import SentenceTransformer
+_model = SentenceTransformer(settings.EMBEDDING_MODEL, device='cpu')
 
 
 def get_model():
@@ -21,7 +23,7 @@ def get_model():
     if _model is None:
         # Imported lazily so the rest of the app can be imported/tested
         # without pulling in torch/sentence-transformers.
-        from sentence_transformers import SentenceTransformer
+        # from sentence_transformers import SentenceTransformer
 
         logger.info(
             "loading embedding model %s (first run downloads it, ~90MB, needs internet)",
