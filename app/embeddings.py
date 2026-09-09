@@ -28,7 +28,7 @@ def get_model():
             settings.EMBEDDING_MODEL,
         )
         try:
-            _model = SentenceTransformer(settings.EMBEDDING_MODEL)
+            _model = SentenceTransformer(settings.EMBEDDING_MODEL, device='cpu')
         except Exception:
             logger.exception(
                 "failed to load/download embedding model %s — check internet "
