@@ -1,9 +1,13 @@
+import logging
+
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.embeddings import cosine_similarity
 from app.llm_client import classify_relationship
 from app.models import Fact, FactRelationship, Document
+
+logger = logging.getLogger("factlayer.linking")
 
 
 def _fact_to_dict(fact: Fact, filename: str) -> dict:
@@ -37,6 +41,7 @@ def link_new_facts(db: Session, new_facts: list[Fact]) -> None:
         .all()
     )
     if not all_other_facts:
+        logger.info("linking: no existing facts from other documents to compare against yet")
         return
 
     filenames: dict[int, str] = {}
@@ -71,6 +76,11 @@ def link_new_facts(db: Session, new_facts: list[Fact]) -> None:
 
         scored.sort(key=lambda x: x[0], reverse=True)
         candidates = scored[: settings.LINK_TOP_K]
+        logger.info(
+            "linking: fact %s has %d candidate matches above threshold",
+            new_fact.id,
+            len(candidates),
+        )
 
         for sim, other in candidates:
             # Avoid duplicate relationship rows if this pair was already
@@ -97,9 +107,12 @@ def link_new_facts(db: Session, new_facts: list[Fact]) -> None:
 
             try:
                 result = classify_relationship(fact_a_dict, fact_b_dict)
-            except Exception as e:  # noqa: BLE001
-                print(f"[linking] classification failed for facts "
-                      f"{new_fact.id}/{other.id}: {e}")
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "linking: classification failed for facts %s/%s",
+                    new_fact.id,
+                    other.id,
+                )
                 continue
 
             relation_type = result.get("relation_type", "unrelated")

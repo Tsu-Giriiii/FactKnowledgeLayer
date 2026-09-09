@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import uuid
@@ -14,7 +15,12 @@ from app.database import Base, engine, get_db, SessionLocal
 from app.models import Document, Fact, FactRelationship
 from app.schemas import DocumentOut, FactOut, FactDetailOut, RelationshipOut
 from app.extraction import process_document
-from app.linking import link_new_facts
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("factlayer")
 
 Base.metadata.create_all(bind=engine)
 
@@ -39,15 +45,36 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 def _run_pipeline(document_id: int) -> None:
-    """Runs in a background thread with its own DB session."""
+    """Runs in a background thread with its own DB session. Wrapped so that
+    literally anything going wrong here — including bugs we didn't
+    anticipate — still ends with the document marked "failed" with a
+    message, instead of silently sitting at "processing" forever."""
+    logger.info("document %s: starting pipeline", document_id)
     db = SessionLocal()
     try:
         document = db.query(Document).get(document_id)
         if not document:
+            logger.warning("document %s: not found, aborting", document_id)
             return
-        process_document(db, document)
-        new_facts = db.query(Fact).filter(Fact.document_id == document_id).all()
-        link_new_facts(db, new_facts)
+        try:
+            # process_document saves + links facts chunk-by-chunk internally
+            # (see app/extraction.py), committing after each chunk so the UI
+            # can show facts and relationships while later chunks are still
+            # being processed.
+            process_document(db, document)
+            logger.info(
+                "document %s: pipeline complete, status=%s",
+                document_id,
+                document.status,
+            )
+        except Exception:
+            logger.exception("document %s: pipeline failed", document_id)
+            db.rollback()
+            document = db.query(Document).get(document_id)
+            if document and document.status != "failed":
+                document.status = "failed"
+                document.error = "Unexpected error — check server logs."
+                db.commit()
     finally:
         db.close()
 

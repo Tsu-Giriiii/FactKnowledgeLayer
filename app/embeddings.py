@@ -1,6 +1,17 @@
+import logging
+import os
+
 import numpy as np
 
 from app.config import settings
+
+logger = logging.getLogger("factlayer.embeddings")
+
+# huggingface_hub retries with backoff on network errors by default, which on
+# a machine with restricted/no internet can look exactly like an indefinite
+# hang. Force it to give up quickly and raise instead.
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "15")
+os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "15")
 
 _model = None
 
@@ -12,7 +23,20 @@ def get_model():
         # without pulling in torch/sentence-transformers.
         from sentence_transformers import SentenceTransformer
 
-        _model = SentenceTransformer(settings.EMBEDDING_MODEL)
+        logger.info(
+            "loading embedding model %s (first run downloads it, ~90MB, needs internet)",
+            settings.EMBEDDING_MODEL,
+        )
+        try:
+            _model = SentenceTransformer(settings.EMBEDDING_MODEL)
+        except Exception:
+            logger.exception(
+                "failed to load/download embedding model %s — check internet "
+                "access from this machine, or pre-download it separately",
+                settings.EMBEDDING_MODEL,
+            )
+            raise
+        logger.info("embedding model ready")
     return _model
 
 

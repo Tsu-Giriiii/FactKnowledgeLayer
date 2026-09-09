@@ -1,21 +1,29 @@
 import json
 import re
 
-import anthropic
+from google import genai
+from google.genai import types
 
 from app.config import settings
 
 _client = None
 
 
-def get_client() -> anthropic.Anthropic:
+def get_client() -> genai.Client:
     global _client
     if _client is None:
-        if not settings.ANTHROPIC_API_KEY:
+        if not settings.GEMINI_API_KEY:
             raise RuntimeError(
-                "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add your key."
+                "GEMINI_API_KEY is not set. Copy .env.example to .env, get a free "
+                "key at https://aistudio.google.com/apikey, and add it there."
             )
-        _client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        _client = genai.Client(
+            api_key=settings.GEMINI_API_KEY,
+            # Without this, a network hiccup or a stuck request hangs the
+            # background worker forever with no error and no log line.
+            # Timeout is in milliseconds.
+            http_options=types.HttpOptions(timeout=60_000),
+        )
     return _client
 
 
@@ -96,16 +104,39 @@ Extract at most 25 facts from this chunk — prioritize the clearest, most \
 specific, most important ones."""
 
 
-def extract_facts_from_chunk(chunk_text: str) -> list[dict]:
+def _finish_reason_str(response) -> str:
+    try:
+        return str(response.candidates[0].finish_reason)
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+def _generate_json(system_prompt: str, user_content: str, max_output_tokens: int):
+    """Call Gemini with thinking disabled (so the whole token budget goes to
+    the actual JSON answer, not hidden reasoning) and raise a clear error if
+    the response was cut off before it could close its JSON."""
     client = get_client()
-    response = client.messages.create(
-        model=settings.ANTHROPIC_MODEL,
-        max_tokens=4000,
-        system=EXTRACTION_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": chunk_text}],
+    response = client.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=user_content,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            response_mime_type="application/json",
+            max_output_tokens=max_output_tokens,
+
+        ),
     )
-    text = "".join(block.text for block in response.content if block.type == "text")
-    data = _extract_json(text)
+    text = response.text or ""
+    if _finish_reason_str(response) == "MAX_TOKENS" or not text.strip():
+        raise ValueError(
+            "Gemini response was truncated (hit max_output_tokens) before the "
+            "JSON could close. Reduce PAGES_PER_CHUNK, or raise max_output_tokens."
+        )
+    return _extract_json(text)
+
+
+def extract_facts_from_chunk(chunk_text: str) -> list[dict]:
+    data = _generate_json(EXTRACTION_SYSTEM_PROMPT, chunk_text, max_output_tokens=8192)
     if not isinstance(data, list):
         raise ValueError("Expected a JSON array of facts")
     return data
@@ -146,7 +177,6 @@ what is incompatible.",
 
 
 def classify_relationship(fact_a: dict, fact_b: dict) -> dict:
-    client = get_client()
     user_content = (
         "FACT A (from document: "
         + fact_a.get("document_filename", "unknown")
@@ -167,14 +197,7 @@ def classify_relationship(fact_a: dict, fact_b: dict) -> dict:
         f"Geo scope: {fact_b.get('geo_scope')}\n"
         f"Evidence quote: \"{fact_b['evidence_quote']}\"\n"
     )
-    response = client.messages.create(
-        model=settings.ANTHROPIC_MODEL,
-        max_tokens=500,
-        system=RELATIONSHIP_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
-    )
-    text = "".join(block.text for block in response.content if block.type == "text")
-    data = _extract_json(text)
+    data = _generate_json(RELATIONSHIP_SYSTEM_PROMPT, user_content, max_output_tokens=1024)
     if not isinstance(data, dict):
         raise ValueError("Expected a JSON object for relationship classification")
     return data

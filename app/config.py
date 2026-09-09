@@ -5,8 +5,11 @@ load_dotenv()
 
 
 class Settings:
-    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
-    ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    # gemini-2.5-flash is stable and has a generous free tier. Swap to
+    # gemini-3-flash-preview (or whatever is current) for the newer model —
+    # check https://ai.google.dev/gemini-api/docs/models for the latest list.
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./factlayer.db")
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "./uploads")

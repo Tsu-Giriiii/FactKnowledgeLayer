@@ -6,10 +6,10 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: ANTHROPIC_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
-      - key: ANTHROPIC_MODEL
-        value: claude-sonnet-4-5
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
       - key: DATABASE_URL
         value: sqlite:////data/factlayer.db
       - key: UPLOAD_DIR

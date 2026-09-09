@@ -18,7 +18,7 @@ Article IV) — the same pipeline should work on any PDF you throw at it.
 
 ### 1. Requirements
 - Python 3.11+
-- An Anthropic API key (for the extraction & reasoning LLM calls)
+- A Gemini API key (free tier is enough) — get one at https://aistudio.google.com/apikey
 
 ### 2. Install
 
@@ -32,17 +32,18 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+# edit .env and set GEMINI_API_KEY=...
 ```
 
-`ANTHROPIC_MODEL` defaults to `claude-sonnet-4-5`. Check
-https://docs.claude.com/en/docs/about-claude/models for the current model ID if
-that one has been retired by the time you run this.
+`GEMINI_MODEL` defaults to `gemini-2.5-flash` (stable, generous free tier).
+Check https://ai.google.dev/gemini-api/docs/models for the current lineup —
+Google ships new model generations (e.g. `gemini-3-flash-preview`) fairly
+often, and 2.5 is currently slated for shutdown in October 2026.
 
 The first run will download a small local embedding model
 (`sentence-transformers/all-MiniLM-L6-v2`, ~90MB) — this happens once, requires
 internet, and after that the app works fully offline except for the calls to
-the Anthropic API itself.
+the Gemini API itself.
 
 ### 4. Run
 
@@ -57,7 +58,7 @@ Open **http://localhost:8000** for the UI, or use the API directly (docs at
 
 A `render.yaml` is included (Python web service, `uvicorn app.main:app --host
 0.0.0.0 --port $PORT`, persistent disk mounted at `/data` for the SQLite file
-and uploaded PDFs). Set `ANTHROPIC_API_KEY` as a secret env var in the Render
+and uploaded PDFs). Set `GEMINI_API_KEY` as a secret env var in the Render
 dashboard — don't commit it.
 
 ### Basic usage
@@ -164,9 +165,10 @@ taxonomy, but they can live in the same table.
 ### AI tools used
 
 Claude (this conversation) designed and wrote the extraction pipeline, linking
-logic, API, and UI. The Anthropic API (Claude) is also used at runtime, twice
-per document: once to extract facts from each page-window, and once per
-candidate pair to classify the relationship between two facts.
+logic, API, and UI. The Gemini API (`gemini-2.5-flash`) is used at runtime,
+twice per document: once to extract facts from each page-window, and once per
+candidate pair to classify the relationship between two facts. Gemini's
+free tier is what makes running/demoing this without a paid key practical.
 
 ---
 
@@ -205,6 +207,13 @@ those for the video + this section.
 
 ## Limitations and Next Steps
 
+- **Gemini 2.5 models "think" by default**, and thinking tokens are drawn from
+  the same `max_output_tokens` budget as the actual answer — left on, this
+  silently truncates the JSON output on chunks with a lot of facts. The code
+  disables thinking for both LLM calls (`thinking_budget=0` in
+  `app/llm_client.py`) and raises a clear error instead of a cryptic JSON
+  parse failure if a response still gets cut off, but if you swap in a
+  different model, check whether it has the same behavior.
 - **Quote verification is exact-ish string matching**, not semantic — it will
   false-flag a true fact if the model reformats whitespace/numbers slightly
   when quoting. A fuzzy/normalized match (strip punctuation, collapse

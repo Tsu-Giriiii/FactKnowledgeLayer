@@ -245,7 +245,7 @@ async function loadDocs() {
   el.innerHTML = docs
     .map(
       (d) => `
-      <div class="doc-chip" data-doc="${d.id}" style="cursor:pointer; ${currentDocFilter === d.id ? "outline:1px solid var(--accent);" : ""}">
+      <div class="doc-chip" data-doc="${d.id}" ${d.error ? `title="${escapeHtml(d.error)}"` : ""} style="cursor:pointer; ${currentDocFilter === d.id ? "outline:1px solid var(--accent);" : ""}">
         ${escapeHtml(d.filename)}
         <span class="status status-${d.status}">${d.status}</span>
       </div>`
@@ -333,7 +333,7 @@ function pollUntilDone() {
     await refreshAll();
     const stillProcessing = docs.some((d) => d.status === "processing");
     if (!stillProcessing) clearInterval(interval);
-  }, 4000);
+  }, 2000);
 }
 
 async function refreshAll() {
